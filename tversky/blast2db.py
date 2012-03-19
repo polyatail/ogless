@@ -13,6 +13,7 @@ import shelve
 import itertools
 import numpy
 from multiprocessing import Pool
+import subprocess
 import bz2file
 import gzip
 
