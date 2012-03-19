@@ -14,8 +14,13 @@ import itertools
 import numpy
 from multiprocessing import Pool
 import subprocess
-import bz2file
 import gzip
+
+try:
+   import bz2file as bz2
+except ImportError:
+   raise Warning("bz2 is not compatible with pbzip2 compressed files")
+   import bz2
 
 def parse_options(arguments):
     global options, args
@@ -166,7 +171,7 @@ def zip_wrapper(in_fname):
         for line in gzip.open(in_fname, "r"):
             yield line
     elif in_fname.lower().endswith((".bz2", ".bzip2")):
-        for line in bz2file.BZ2File(in_fname, "r"):
+        for line in bz2.BZ2File(in_fname, "r"):
             yield line
     else:
         for line in open(in_fname, "r"):
