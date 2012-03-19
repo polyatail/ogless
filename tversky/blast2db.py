@@ -150,7 +150,7 @@ def parse_blast6_MP_worker(in_tuple):
     return hits
 
 def zip_wrapper(in_fname):
-    if options.zip:
+    if options.zip_prog:
         proc = subprocess.Popen([options.zip, "-cd", in_fname],
                                 stdout=subprocess.PIPE,
                                 stderr=open(os.devnull, "w"))
