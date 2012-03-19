@@ -127,7 +127,11 @@ def parse_blast6_MP(name_to_data, db):
     result = pool.map_async(parse_blast6_MP_worker, batch)
 
     # add all the resulting numpy matrices together
-    for i in result.get(2592000):
+    matrices = result.get(2592000)
+
+    sys.stderr.write("adding result matrices\n")
+
+    for i in matrices:
         db["blast_hits"] += i
 
 def parse_blast6_MP_worker(in_tuple):
