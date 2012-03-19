@@ -69,6 +69,8 @@ def tversky_matrix(db, alpha):
     return tversky_matrix
 
 def print_matrix(db, matrix):
+    print "\t".join(["name"] + db["genomes"])
+
     for genome_num, genome_name in enumerate(db["genomes"]):
         row = [genome_name] + [x[:8] for x in map(str, matrix[genome_num])]
         print "\t".join(row)
