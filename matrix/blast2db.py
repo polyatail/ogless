@@ -25,7 +25,7 @@ except ImportError:
 def parse_options(arguments):
     global options, args
 
-    parser = OptionParser(usage="%prog [options] <tversky.db>",
+    parser = OptionParser(usage="%prog [options] <database.db>",
                           version="%prog " + str(__version__))
 
     parser.add_option("--add",
@@ -85,13 +85,13 @@ def read_input_file(in_fname):
         line_split = line.rstrip("\n").split("\t")
         
         if len(line_split) <> 3:
-            raise ValueError("%s:%s: invalid number of fields" % (in_fname, line_num+1))
+            raise ValueError("%s:%s: invalid number of fields" % (in_fname, line_num + 1))
 
         if not os.path.exists(line_split[1]):
-            raise ValueError("%s:%s: file does not exist" % (in_fname, line_num+1))
+            raise ValueError("%s:%s: file does not exist" % (in_fname, line_num + 1))
 
         if not os.path.exists(line_split[2]):
-            raise ValueError("%s:%s: file does not exist" % (in_fname, line_num+1))
+            raise ValueError("%s:%s: file does not exist" % (in_fname, line_num + 1))
 
         name_to_data[line_split[0]] = {"faa": line_split[1],
                                        "blast6": line_split[2]}
