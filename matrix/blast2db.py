@@ -61,6 +61,18 @@ def parse_options(arguments):
                       default=False,
                       help="decompress blast files with this program")
 
+    parser.add_option("--sbh",
+                      dest="sbh",
+                      action="store_true",
+                      default=False,
+                      help="use single-best hit (SBH) algorithm (default)")
+
+    parser.add_option("--bbh",
+                      dest="bbh",
+                      action="store_true",
+                      default=False,
+                      help="use bi-directional best-hit (BBH) algorithm")
+
     options, args = parser.parse_args()
 
     if len(args) <> 1:
@@ -74,6 +86,11 @@ def parse_options(arguments):
             parser.error("--new specified but database already exists, use -f to overwrite")
     elif not os.path.exists(args[0]):
         parser.error("database file does not exist")
+
+    if options.sbh and options.bbh:
+        parser.error("--sbh and --bbh are mutually exclusive")
+    elif not (options.sbh or options.bbh):
+        options.sbh = True
 
 def read_input_file(in_fname):
     name_to_data = {}
@@ -115,7 +132,7 @@ def index_fastas(name_to_data, db):
                 cds_to_genome[cds] = genome_num
                 genome_to_cds[genome_num].append(cds)
 
-def parse_blast6_MP(name_to_data, db):
+def parse_blast6_SBH_MP(name_to_data, db):
     # split into as many workers as we have
     l_name_to_data = name_to_data.items()
     batch_size = len(l_name_to_data) / options.num_procs
@@ -139,7 +156,7 @@ def parse_blast6_MP(name_to_data, db):
     for i in matrices:
         db["blast_hits"] += i
 
-def parse_blast6_MP_worker(in_tuple):
+def parse_blast6_SBH(in_tuple):
     name_to_data, cds_to_genome, genome_to_num  = in_tuple 
 
     hits = numpy.zeros((len(genome_to_num), len(genome_to_num)))
@@ -227,11 +244,14 @@ def main(arguments=sys.argv[1:]):
         
         sys.stderr.write("parsing blast6 results\n")
 
-        if options.num_procs > 1:
-            parse_blast6_MP(name_to_data, db)
-        else:
-            hits = parse_blast6_MP_worker(name_to_data, db["cds_to_genome"], db["genome_to_num"])
-            db["blast_hits"] += hits
+        if options.sbh:
+            if options.num_procs > 1:
+                parse_blast6_SBH_MP(name_to_data, db)
+            else:
+                hits = parse_blast6_SBH((name_to_data, db["cds_to_genome"], db["genome_to_num"]))
+                db["blast_hits"] += hits
+        elif options.bbh:
+            pass
 
         db.sync()
 
