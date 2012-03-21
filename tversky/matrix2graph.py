@@ -14,14 +14,14 @@ import re
 def parse_options(arguments):
     global options, args
 
-    parser = OptionParser(usage="%prog [options] <tversky.matrix>",
+    parser = OptionParser(usage="%prog [options] <matrix.phylip>",
                           version="%prog " + str(__version__))
 
     parser.add_option("-o",
                       dest="output_dir",
                       type="str",
-                      metavar="[./tversky_out]",
-                      default="./tversky_out",
+                      metavar="[./graph_out]",
+                      default="./graph_out",
                       help="write output files to this directory")
 
     parser.add_option("-f",
@@ -68,11 +68,7 @@ def parse_options(arguments):
         parser.error("incorrect number of arguments")
         
     if not os.path.exists(args[0]):
-        parser.error("matrix file doest not exist")
-
-    if options.filter > 1 or \
-       options.filter < 0:
-        parser.error("filter must be between 0 and 1")
+        parser.error("matrix file does not exist")
 
     if options.legend and not options.highlight:
         parser.error("--legend requires --highlight")
@@ -139,7 +135,7 @@ def graph_from_matrix(iterable):
         kept_fields = filter(lambda (x, y): y >= options.filter, enumerate(map(float, line_split[1:])))
         
         for num, score in kept_fields:
-            graph.add_edge(line_split[0], num_to_name[num], len=str(1 - score))
+            graph.add_edge(line_split[0], num_to_name[num], len=str(score))
 
         sys.stderr.write("\r  %s%% complete" % round(100 * (float(line_num) / float(len(header)))))
 
@@ -225,9 +221,11 @@ def main(arguments=sys.argv[1:]):
         graph.node_attr["height"] = "0.4"
         graph.node_attr["width"] = "0.4"
 
+    sys.stderr.write("writing graph.dot\n")
     graph.write(os.path.join(options.output_dir, "graph.dot"))
     
     if not options.nodraw:
+        sys.stderr.write("drawing graph.png\n")
         graph.draw(os.path.join(options.output_dir, "graph.png"), format="png", prog="neato")
 
 if __name__ == "__main__":
