@@ -19,7 +19,7 @@ import gzip
 try:
     import bz2file as bz2
 except ImportError:
-    sys.stderr.write("WARNING: install bz2file if using pbzip2-compressed files")
+    sys.stderr.write("WARNING: install bz2file if using pbzip2-compressed files\n")
     import bz2
 
 def parse_options(arguments):
@@ -178,7 +178,7 @@ def zip_wrapper(in_fname):
             yield line
 
 def new_db(out_fname):
-    db = shelve.open(out_fname, flag="n", protocol=1, writeback=True)
+    db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
     
     db["genomes"] = []
     db["genome_to_num"] = {}
@@ -199,7 +199,7 @@ def main(arguments=sys.argv[1:]):
     if options.new:
         db = new_db(args[0])
     else:
-        db = shelve.open(args[0], flag="w", protocol=1, writeback=True)
+        db = shelve.open(args[0], flag="w", writeback=True)
 
     # add some data to the db
     if options.add:
