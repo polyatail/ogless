@@ -17,10 +17,10 @@ import subprocess
 import gzip
 
 try:
-   import bz2file as bz2
+    import bz2file as bz2
 except ImportError:
-   raise Warning("bz2 is not compatible with pbzip2 compressed files")
-   import bz2
+    sys.stderr.write("WARNING: install bz2file if using pbzip2-compressed files")
+    import bz2
 
 def parse_options(arguments):
     global options, args
