@@ -389,5 +389,41 @@ def main(arguments=sys.argv[1:]):
 
         db.sync()
 
+    if options.delete:
+        # make sure everything is in the database first
+        checked_genomes = {}
+        
+        for genome in options.delete:
+            try:
+                genome_num = db["genome_to_num"][genome]
+            except KeyError:
+                raise ValueError("%s is not in the database" % genome)
+
+            checked_genomes[genome] = genome_num
+
+        # then get down to business
+        sys.stderr.write("deleting genomes\n")
+
+        for genome, genome_num in checked_genomes.items():
+            sys.stderr.write("  %s\n" % genome)
+
+            db["genomes"].remove(genome)
+
+            # remove its columns and rows from the hit matrix
+            db["hit_matrix"] = numpy.delete(db["hit_matrix"], genome_num, 0)
+            db["hit_matrix"] = numpy.delete(db["hit_matrix"], genome_num, 1)
+
+            sys.stderr.write("    removed cols/rows\n")
+
+            # nuke every CDS belonging to this genome
+            nuke_count = 0
+            
+            for cds_hash in cds_to_genome.keys():
+                if cds_to_genome[cds_hash] == genome_num:
+                    del cds_to_genome[cds_hash]
+                    nuke_count += 1
+
+            sys.stderr.write("    removed %s CDS\n" % nuke_count)
+
 if __name__ == "__main__":
     main()
