@@ -19,7 +19,7 @@ import gzip
 try:
     import bz2file as bz2
 except ImportError:
-    sys.stderr.write("WARNING: install bz2file if using pbzip2-compressed files\n")
+    sys.stderr.write("WARNING: if using pbzip2-compressed files, specify -z pbzip2 or install bz2file\n")
     import bz2
 
 def parse_options(arguments):
@@ -176,6 +176,75 @@ def parse_blast6_SBH(in_tuple):
 
     return hits
 
+def parse_blast6_BBH_MP(name_to_data, db):
+    # split into as many workers as we have
+    l_name_to_data = name_to_data.items()
+    batch_size = len(l_name_to_data) / options.num_procs
+
+    batch = []
+
+    for i in range(0, len(l_name_to_data), batch_size):
+        batch.append((l_name_to_data[i:i+batch_size],
+                      db["cds_to_genome"],
+                      db["genome_to_num"]))
+
+    # then feed batches to the process pool
+    pool = Pool(processes=options.num_procs)
+    result = pool.map_async(parse_blast6_BBH, batch)
+
+    # wait for the results
+    result_data = result.get(2592000)
+
+    sys.stderr.write("processing results\n")
+    sys.stderr.write("  concatenating\n")
+    result_data = numpy.concatenate(result_data)
+
+    sys.stderr.write("  sorting\n")
+    result_data.sort(order="cds_hash")
+
+    sys.stderr.write("  searching for BBHs\n")
+    bbh_count = numpy.zeros((len(db["genomes"]), len(db["genomes"])))
+
+    last_hit = 0
+
+    for x, y, z in result_data:
+        # BBH
+        if x == last_hit:
+            bbh_count[y][z] += 1
+            bbh_count[z][y] += 1
+
+        last_hit = x
+
+    return bbh_count
+
+def parse_blast6_BBH(in_tuple):
+    name_to_data, cds_to_genome, genome_to_num  = in_tuple 
+
+    hits = []
+
+    for name, data in name_to_data:
+        sys.stderr.write("  %s\n" % name)
+
+        for line in zip_wrapper(data["blast6"]):
+            line_split = line.rstrip("\n").split("\t")
+            
+            cds1 = hash(line_split[0])
+            cds2 = hash(line_split[1])
+            
+            ref_genome = cds_to_genome[cds1]
+            query_genome = cds_to_genome[cds2]
+            
+            hits.append((hash(tuple(sorted((cds1, cds2)))),
+                         ref_genome, query_genome))
+
+    # make this into a numpy array
+    result = numpy.array(hits,
+                         dtype=[("cds_hash", numpy.int64),
+                                ("genome1", numpy.uint32),
+                                ("genome2", numpy.uint32)])
+
+    return result
+
 def zip_wrapper(in_fname):
     if options.zip_prog:
         proc = subprocess.Popen([options.zip_prog, "-cd", in_fname],
@@ -251,7 +320,11 @@ def main(arguments=sys.argv[1:]):
                 hits = parse_blast6_SBH((name_to_data, db["cds_to_genome"], db["genome_to_num"]))
                 db["blast_hits"] += hits
         elif options.bbh:
-            pass
+            if options.num_procs > 1:
+                parse_blast6_BBH_MP(name_to_data, db)
+            else:
+                hits = parse_blast6_BBH((name_to_data, db["cds_to_genome"], db["genome_to_num"]))
+                db["blast_hits"] += hits
 
         db.sync()
 
