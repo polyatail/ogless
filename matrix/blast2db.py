@@ -370,11 +370,7 @@ def main(arguments=sys.argv[1:]):
                 hits = parse_blast6_SBH(name_to_data.items())
                 db["hit_matrix"] += hits
         elif options.bbh:
-            if options.num_procs > 1:
-                parse_blast6_BBH_MP(name_to_data)
-            else:
-                hits = parse_blast6_BBH(name_to_data.items())
-                db["hit_matrix"] += numpy.load(zip_reader(hits))
+            parse_blast6_BBH_MP(name_to_data)
 
         sys.stderr.write("syncing database\n")
         db.sync()
