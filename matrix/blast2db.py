@@ -111,24 +111,20 @@ def read_input_file(in_fname):
 
     return name_to_data
 
-def index_fastas(name_to_data, db):
-    cds_to_genome = db["cds_to_genome"]
-    genome_to_cds = db["genome_to_cds"]
-    genome_to_num = db["genome_to_num"]
-    
+def index_fastas(name_to_data):
     for name, data in name_to_data.items():
         sys.stderr.write("  %s\n" % name)
 
-        genome_num = genome_to_num[name]
+        genome_num = db["genome_to_num"][name]
 
         for line in open(data["faa"], "r"):
             if line.startswith(">"):
                 cds = hash(line[1:-1])
 
-                cds_to_genome[cds] = genome_num
-                genome_to_cds[genome_num].append(cds)
+                db["cds_to_genome"][cds] = genome_num
+                db["genome_to_cds"][genome_num].append(cds)
 
-def parse_blast6_SBH_MP(name_to_data, db):
+def parse_blast6_SBH_MP(name_to_data):
     # split into as many workers as we have
     l_name_to_data = name_to_data.items()
 
@@ -153,24 +149,24 @@ def parse_blast6_SBH_MP(name_to_data, db):
         db["hit_matrix"] += i
 
 def parse_blast6_SBH(name_to_data):
-    hits = numpy.zeros((len(genome_to_num), len(genome_to_num)))
+    hits = numpy.zeros((len(db["genome_to_num"]), len(db["genome_to_num"])))
 
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
-        query_genome = genome_to_num[name]
+        query_genome = db["genome_to_num"][name]
 
         for line in zip_wrapper(data["blast6"]):
             line_split = line.rstrip("\n").split("\t")
             
             cds1 = hash(line_split[0])
-            ref_genome = cds_to_genome[cds1]
+            ref_genome = db["cds_to_genome"][cds1]
 
             hits[ref_genome][query_genome] += 1
 
     return hits
 
-def parse_blast6_BBH_MP(name_to_data, db):
+def parse_blast6_BBH_MP(name_to_data):
     # split into as many workers as we have
     l_name_to_data = name_to_data.items()
 
@@ -229,7 +225,7 @@ def parse_blast6_BBH(name_to_data):
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
-        query_genome = genome_to_num[name]
+        query_genome = db["genome_to_num"][name]
         
         hits = numpy.empty(1000000, dtype=[("cds_hash", numpy.int64),
                                            ("genome1", numpy.uint16),
@@ -244,7 +240,7 @@ def parse_blast6_BBH(name_to_data):
             cds2 = hash(line_split[1])
             
             try:
-                ref_genome = cds_to_genome[cds1]
+                ref_genome = db["cds_to_genome"][cds1]
             except KeyError:
                 continue
 
@@ -337,16 +333,14 @@ def new_db(out_fname):
 def main(arguments=sys.argv[1:]):
     parse_options(arguments)
 
+    # cheat by making the database global
+    global db
+
     # make a new database or load an existing one
     if not os.path.exists(args[0]):
         db = new_db(args[0])
     else:
         db = shelve.open(args[0], flag="w", writeback=True)
-
-    # cheat by making these globals
-    global cds_to_genome, genome_to_num
-    cds_to_genome = db["cds_to_genome"]
-    genome_to_num = db["genome_to_num"]
 
     # add some data to the db
     if options.add:
@@ -367,7 +361,7 @@ def main(arguments=sys.argv[1:]):
         db.sync()
 
         sys.stderr.write("indexing FASTAs\n")
-        index_fastas(name_to_data, db)
+        index_fastas(name_to_data)
         db.sync()
         
         db["hit_matrix"].resize((len(db["genomes"]), len(db["genomes"])))
@@ -418,9 +412,9 @@ def main(arguments=sys.argv[1:]):
             # nuke every CDS belonging to this genome
             nuke_count = 0
             
-            for cds_hash in cds_to_genome.keys():
-                if cds_to_genome[cds_hash] == genome_num:
-                    del cds_to_genome[cds_hash]
+            for cds_hash in db["cds_to_genome"].keys():
+                if db["cds_to_genome"][cds_hash] == genome_num:
+                    del db["cds_to_genome"][cds_hash]
                     nuke_count += 1
 
             sys.stderr.write("    removed %s CDS\n" % nuke_count)
