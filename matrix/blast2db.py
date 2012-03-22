@@ -146,7 +146,7 @@ def parse_blast6_SBH_MP(name_to_data, db):
 
     # then feed batches to the process pool
     pool = Pool(processes=options.num_procs)
-    result = pool.map_async(parse_blast6_MP_worker, batch)
+    result = pool.map_async(parse_blast6_SBH, batch)
 
     # add all the resulting numpy matrices together
     matrices = result.get(2592000)
@@ -215,7 +215,7 @@ def parse_blast6_BBH_MP(name_to_data, db):
 
         last_hit = x
 
-    return bbh_count
+    db["blast_hits"] += bbh_count
 
 def parse_blast6_BBH(in_tuple):
     name_to_data, cds_to_genome, genome_to_num  = in_tuple 
@@ -317,13 +317,13 @@ def main(arguments=sys.argv[1:]):
             if options.num_procs > 1:
                 parse_blast6_SBH_MP(name_to_data, db)
             else:
-                hits = parse_blast6_SBH((name_to_data, db["cds_to_genome"], db["genome_to_num"]))
+                hits = parse_blast6_SBH((name_to_data.items(), db["cds_to_genome"], db["genome_to_num"]))
                 db["blast_hits"] += hits
         elif options.bbh:
             if options.num_procs > 1:
                 parse_blast6_BBH_MP(name_to_data, db)
             else:
-                hits = parse_blast6_BBH((name_to_data, db["cds_to_genome"], db["genome_to_num"]))
+                hits = parse_blast6_BBH((name_to_data.items(), db["cds_to_genome"], db["genome_to_num"]))
                 db["blast_hits"] += hits
 
         db.sync()
