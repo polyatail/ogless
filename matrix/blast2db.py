@@ -191,6 +191,7 @@ def parse_blast6_BBH_MP(name_to_data, db):
     # then feed batches to the process pool
     pool = Pool(processes=options.num_procs)
     result = pool.map_async(parse_blast6_BBH, batch)
+    pool.close()
 
     # wait for the results
     result_data = result.get(2592000)
@@ -205,43 +206,60 @@ def parse_blast6_BBH_MP(name_to_data, db):
     sys.stderr.write("  searching for BBHs\n")
     bbh_count = numpy.zeros((len(db["genomes"]), len(db["genomes"])))
 
-    last_hit = 0
+    last_hit = (0, 0, 0)
 
     for x, y, z in result_data:
         # BBH
-        if x == last_hit:
+        if x == last_hit[0] and \
+           last_hit[1] in (y, z) and \
+           last_hit[2] in (y, z):
             bbh_count[y][z] += 1
             bbh_count[z][y] += 1
 
-        last_hit = x
+        last_hit = (x, y, z)
 
     db["blast_hits"] += bbh_count
 
 def parse_blast6_BBH(in_tuple):
     name_to_data, cds_to_genome, genome_to_num  = in_tuple 
 
-    hits = []
+    result = numpy.empty(0,
+                         dtype=[("cds_hash", numpy.int64),
+                                ("genome1", numpy.uint16),
+                                ("genome2", numpy.uint16)])
 
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
+        query_genome = genome_to_num[name]
+        
+        hits = numpy.empty(1000000,
+                           dtype=[("cds_hash", numpy.int64),
+                                  ("genome1", numpy.uint16),
+                                  ("genome2", numpy.uint16)])
+
+        hit_count = 0
+    
         for line in zip_wrapper(data["blast6"]):
-            line_split = line.rstrip("\n").split("\t")
+            line_split = line.rstrip("\n").split("\t", 3)
             
             cds1 = hash(line_split[0])
             cds2 = hash(line_split[1])
             
-            ref_genome = cds_to_genome[cds1]
-            query_genome = cds_to_genome[cds2]
-            
-            hits.append((hash(tuple(sorted((cds1, cds2)))),
-                         ref_genome, query_genome))
+            try:
+                ref_genome = cds_to_genome[cds1]
+            except KeyError:
+                continue
 
-    # make this into a numpy array
-    result = numpy.array(hits,
-                         dtype=[("cds_hash", numpy.int64),
-                                ("genome1", numpy.uint32),
-                                ("genome2", numpy.uint32)])
+            try:
+                hits[hit_count] = (hash(cds1 + cds2), ref_genome, query_genome)
+            except IndexError:
+                hits.resize(len(hits) + 100000)
+                hits[hit_count] = (hash(cds1 + cds2), ref_genome, query_genome)          
+
+            hit_count += 1
+
+        result = numpy.concatenate((result, hits[:hit_count]))
 
     return result
 
@@ -251,17 +269,13 @@ def zip_wrapper(in_fname):
                                 stdout=subprocess.PIPE,
                                 stderr=open(os.devnull, "w"))
 
-        for line in proc.stdout:
-            yield line
+        return [x for x in proc.stdout]
     elif in_fname.lower().endswith((".gz", ".gzip", ".z")):
-        for line in gzip.open(in_fname, "r"):
-            yield line
+        return [x for x in gzip.open(in_fname, "r")]
     elif in_fname.lower().endswith((".bz2", ".bzip2")):
-        for line in bz2.BZ2File(in_fname, "r"):
-            yield line
+        return [x for x in bz2.BZ2File(in_fname, "r")]
     else:
-        for line in open(in_fname, "r"):
-            yield line
+        return [x for x in open(in_fname, "r")]
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
