@@ -191,6 +191,8 @@ def parse_blast6_BBH_MP(name_to_data, db):
     # then feed batches to the process pool
     pool = Pool(processes=options.num_procs)
     result = pool.map_async(parse_blast6_BBH, batch)
+
+    # without this, workers will stay alive and eat memory when finished
     pool.close()
 
     # wait for the results
