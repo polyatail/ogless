@@ -42,7 +42,7 @@ def parse_options(arguments):
                       dest="delete",
                       type="str",
                       action="append",
-                      metavar="Some_bacteria_sp_name",
+                      metavar="genome_name",
                       default=[],
                       help="remove this genome from the database")
 
@@ -352,20 +352,22 @@ def main(arguments=sys.argv[1:]):
             if name in db["genomes"]:
                 raise ValueError("%s already exists in database" % name)
 
-        # then start making changes
+        # add genomes to the database
         for name in name_to_data.keys():
             db["genomes"].append(name)
 
         db["genome_to_num"] = dict([(y, x) for x, y in enumerate(db["genomes"])])
-
         db.sync()
 
+        # index FASTAs
         sys.stderr.write("indexing FASTAs\n")
         index_fastas(name_to_data)
         db.sync()
         
+        # resize the hit matrix to accomodate more genomes
         db["hit_matrix"].resize((len(db["genomes"]), len(db["genomes"])))
         
+        # and finally, parse the blast6 result files
         sys.stderr.write("parsing blast6 results\n")
 
         if options.sbh:
