@@ -372,13 +372,13 @@ def main(arguments=sys.argv[1:]):
 
         if options.sbh:
             if options.num_procs > 1:
-                parse_blast6_SBH_MP(name_to_data, db)
+                parse_blast6_SBH_MP(name_to_data)
             else:
                 hits = parse_blast6_SBH(name_to_data.items())
                 db["hit_matrix"] += hits
         elif options.bbh:
             if options.num_procs > 1:
-                parse_blast6_BBH_MP(name_to_data, db)
+                parse_blast6_BBH_MP(name_to_data)
             else:
                 hits = parse_blast6_BBH(name_to_data.items())
                 db["hit_matrix"] += numpy.load(zip_reader(hits))
