@@ -236,10 +236,7 @@ def parse_blast6_BBH(name_to_data):
             cds1 = hash(line_split[0])
             cds2 = hash(line_split[1])
             
-            try:
-                ref_genome = db["cds_to_genome"][cds1]
-            except KeyError:
-                continue
+            ref_genome = db["cds_to_genome"][cds1]
 
             try:
                 hits[hit_count] = (hash(cds1 + cds2), ref_genome, query_genome)
