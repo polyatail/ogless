@@ -379,7 +379,7 @@ def main(arguments=sys.argv[1:]):
                 parse_blast6_BBH_MP(name_to_data, db)
             else:
                 hits = parse_blast6_BBH(name_to_data.items())
-                db["hit_matrix"] += hits
+                db["hit_matrix"] += numpy.load(zip_reader(hits))
 
         db.sync()
 
