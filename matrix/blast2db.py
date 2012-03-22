@@ -15,6 +15,9 @@ import numpy
 from multiprocessing import Pool
 import subprocess
 import gzip
+import time
+import tempfile
+from cStringIO import StringIO
 
 try:
     import bz2file as bz2
@@ -135,14 +138,14 @@ def index_fastas(name_to_data, db):
 def parse_blast6_SBH_MP(name_to_data, db):
     # split into as many workers as we have
     l_name_to_data = name_to_data.items()
-    batch_size = len(l_name_to_data) / options.num_procs
+
+    batch_size = len(l_name_to_data) / (options.num_procs * 10)
+    batch_size = 1 if batch_size < 1 else batch_size
 
     batch = []
 
     for i in range(0, len(l_name_to_data), batch_size):
-        batch.append((l_name_to_data[i:i+batch_size],
-                      db["cds_to_genome"],
-                      db["genome_to_num"]))
+        batch.append(l_name_to_data[i:i+batch_size])
 
     # then feed batches to the process pool
     pool = Pool(processes=options.num_procs)
@@ -154,11 +157,9 @@ def parse_blast6_SBH_MP(name_to_data, db):
     sys.stderr.write("adding result matrices\n")
 
     for i in matrices:
-        db["blast_hits"] += i
+        db["hit_matrix"] += i
 
-def parse_blast6_SBH(in_tuple):
-    name_to_data, cds_to_genome, genome_to_num  = in_tuple 
-
+def parse_blast6_SBH(name_to_data):
     hits = numpy.zeros((len(genome_to_num), len(genome_to_num)))
 
     for name, data in name_to_data:
@@ -179,14 +180,14 @@ def parse_blast6_SBH(in_tuple):
 def parse_blast6_BBH_MP(name_to_data, db):
     # split into as many workers as we have
     l_name_to_data = name_to_data.items()
-    batch_size = len(l_name_to_data) / options.num_procs
+
+    batch_size = len(l_name_to_data) / (options.num_procs * 10)
+    batch_size = 1 if batch_size < 1 else batch_size
 
     batch = []
 
     for i in range(0, len(l_name_to_data), batch_size):
-        batch.append((l_name_to_data[i:i+batch_size],
-                      db["cds_to_genome"],
-                      db["genome_to_num"]))
+        batch.append(l_name_to_data[i:i+batch_size])
 
     # then feed batches to the process pool
     pool = Pool(processes=options.num_procs)
@@ -196,9 +197,16 @@ def parse_blast6_BBH_MP(name_to_data, db):
     pool.close()
 
     # wait for the results
-    result_data = result.get(2592000)
+    result_tmpfiles = result.get(2592000)
 
     sys.stderr.write("processing results\n")
+    sys.stderr.write("  loading numpy arrays\n")
+    result_data = []
+
+    for i in result_tmpfiles:    
+        result_data.append(numpy.load(zip_reader(i)))
+        os.unlink(i)
+
     sys.stderr.write("  concatenating\n")
     result_data = numpy.concatenate(result_data)
 
@@ -210,39 +218,33 @@ def parse_blast6_BBH_MP(name_to_data, db):
 
     last_hit = (0, 0, 0)
 
-    for x, y, z in result_data:
-        # BBH
-        if x == last_hit[0] and \
-           last_hit[1] in (y, z) and \
-           last_hit[2] in (y, z):
-            bbh_count[y][z] += 1
-            bbh_count[z][y] += 1
+    for cds_hash, genome1, genome2 in result_data:
+        if cds_hash == last_hit[0] and \
+           last_hit[1:3] in ((genome1, genome2), (genome2, genome1)):
+            bbh_count[genome1][genome2] += 1
+            bbh_count[genome2][genome1] += 1
 
-        last_hit = (x, y, z)
+        last_hit = (cds_hash, genome1, genome2)
 
-    db["blast_hits"] += bbh_count
+    db["hit_matrix"] += bbh_count
 
-def parse_blast6_BBH(in_tuple):
-    name_to_data, cds_to_genome, genome_to_num  = in_tuple 
-
-    result = numpy.empty(0,
-                         dtype=[("cds_hash", numpy.int64),
-                                ("genome1", numpy.uint16),
-                                ("genome2", numpy.uint16)])
+def parse_blast6_BBH(name_to_data):
+    result_ndarray = numpy.empty(0, dtype=[("cds_hash", numpy.int64),
+                                           ("genome1", numpy.uint16),
+                                           ("genome2", numpy.uint16)])
 
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
         query_genome = genome_to_num[name]
         
-        hits = numpy.empty(1000000,
-                           dtype=[("cds_hash", numpy.int64),
-                                  ("genome1", numpy.uint16),
-                                  ("genome2", numpy.uint16)])
+        hits = numpy.empty(1000000, dtype=[("cds_hash", numpy.int64),
+                                           ("genome1", numpy.uint16),
+                                           ("genome2", numpy.uint16)])
 
         hit_count = 0
     
-        for line in zip_wrapper(data["blast6"]):
+        for line in zip_reader(data["blast6"]):
             line_split = line.rstrip("\n").split("\t", 3)
             
             cds1 = hash(line_split[0])
@@ -261,23 +263,68 @@ def parse_blast6_BBH(in_tuple):
 
             hit_count += 1
 
-        result = numpy.concatenate((result, hits[:hit_count]))
+        result_ndarray = numpy.concatenate((result_ndarray, hits[:hit_count]))
 
-    return result
+    tmpfile = tempfile.NamedTemporaryFile("w", delete=False)
+    numpy.save(zip_writer(tmpfile.name), result_ndarray)
+    
+    return tmpfile.name
 
-def zip_wrapper(in_fname):
-    if options.zip_prog:
-        proc = subprocess.Popen([options.zip_prog, "-cd", in_fname],
-                                stdout=subprocess.PIPE,
-                                stderr=open(os.devnull, "w"))
+class zip_reader():
+    def __init__(self, in_fname):
+        if options.zip_prog:
+            self.proc = subprocess.Popen([options.zip_prog, "-cd", in_fname],
+                                    stdout=subprocess.PIPE,
+                                    stderr=open(os.devnull, "w"))
+    
+            self.fp = StringIO(self.proc.stdout.read())
+        elif in_fname.lower().endswith((".gz", ".gzip", ".z")):
+            self.fp = gzip.open(in_fname, "rb")
+        elif in_fname.lower().endswith((".bz2", ".bzip2")):
+            self.fp = bz2.BZ2File(in_fname, "rb")
+        else:
+            self.fp = open(in_fname, "rb")
 
-        return [x for x in proc.stdout]
-    elif in_fname.lower().endswith((".gz", ".gzip", ".z")):
-        return [x for x in gzip.open(in_fname, "r")]
-    elif in_fname.lower().endswith((".bz2", ".bzip2")):
-        return [x for x in bz2.BZ2File(in_fname, "r")]
-    else:
-        return [x for x in open(in_fname, "r")]
+    def __iter__(self):
+        return iter([x for x in self.fp])
+
+    def read(self, size):
+        return self.fp.read(size)
+        
+    def seek(self, offset, whence=0):
+        return self.fp.seek(offset, whence)
+
+    def __del__(self):
+        self.fp.close()
+        
+        if options.zip_prog:
+            while self.proc.poll() == None:
+                time.sleep(0.1)
+
+class zip_writer():
+    def __init__(self, out_fname):
+        if options.zip_prog:
+            self.proc = subprocess.Popen([options.zip_prog, "-c"],
+                                         stdin=subprocess.PIPE,
+                                         stdout=open(out_fname, "wb"))
+
+            self.fp = self.proc.stdin
+        elif out_fname.lower().endswith((".gz", ".gzip", ".z")):
+            self.fp = gzip.open(out_fname, "wb")
+        elif out_fname.lower().endswith((".bz2", ".bzip2")):
+            self.fp = bz2.BZ2File(out_fname, "wb")
+        else:
+            self.fp = open(out_fname, "wb")
+        
+    def write(self, data):
+        self.fp.write(data)
+
+    def __del__(self):
+        self.fp.close()
+        
+        if options.zip_prog:
+            while self.proc.poll() == None:
+                time.sleep(0.1)
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
@@ -288,7 +335,7 @@ def new_db(out_fname):
     db["cds_to_genome"] = {}
     db["genome_to_cds"] = defaultdict(list)
 
-    db["blast_hits"] = numpy.zeros((0, 0))
+    db["hit_matrix"] = numpy.zeros((0, 0))
     
     db.sync()
     
@@ -302,6 +349,11 @@ def main(arguments=sys.argv[1:]):
         db = new_db(args[0])
     else:
         db = shelve.open(args[0], flag="w", writeback=True)
+
+    # cheat by making these globals
+    global cds_to_genome, genome_to_num
+    cds_to_genome = db["cds_to_genome"]
+    genome_to_num = db["genome_to_num"]
 
     # add some data to the db
     if options.add:
@@ -325,7 +377,7 @@ def main(arguments=sys.argv[1:]):
         index_fastas(name_to_data, db)
         db.sync()
         
-        db["blast_hits"].resize((len(db["genomes"]), len(db["genomes"])))
+        db["hit_matrix"].resize((len(db["genomes"]), len(db["genomes"])))
         
         sys.stderr.write("parsing blast6 results\n")
 
@@ -333,14 +385,14 @@ def main(arguments=sys.argv[1:]):
             if options.num_procs > 1:
                 parse_blast6_SBH_MP(name_to_data, db)
             else:
-                hits = parse_blast6_SBH((name_to_data.items(), db["cds_to_genome"], db["genome_to_num"]))
-                db["blast_hits"] += hits
+                hits = parse_blast6_SBH(name_to_data.items())
+                db["hit_matrix"] += hits
         elif options.bbh:
             if options.num_procs > 1:
                 parse_blast6_BBH_MP(name_to_data, db)
             else:
-                hits = parse_blast6_BBH((name_to_data.items(), db["cds_to_genome"], db["genome_to_num"]))
-                db["blast_hits"] += hits
+                hits = parse_blast6_BBH(name_to_data.items())
+                db["hit_matrix"] += hits
 
         db.sync()
 
