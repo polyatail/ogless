@@ -8,9 +8,7 @@ __version__ = 0.0
 from optparse import OptionParser, OptionGroup
 import sys
 import os
-from collections import defaultdict
 import shelve
-import itertools
 import numpy
 from multiprocessing import Pool
 import subprocess
@@ -122,7 +120,6 @@ def index_fastas(name_to_data):
                 cds = hash(line[1:-1])
 
                 db["cds_to_genome"][cds] = genome_num
-                db["genome_to_cds"][genome_num].append(cds)
 
 def parse_blast6_SBH_MP(name_to_data):
     # split into as many workers as we have
@@ -322,7 +319,6 @@ def new_db(out_fname):
     db["genome_to_num"] = {}
 
     db["cds_to_genome"] = {}
-    db["genome_to_cds"] = defaultdict(list)
 
     db["hit_matrix"] = numpy.zeros((0, 0))
     
@@ -383,6 +379,7 @@ def main(arguments=sys.argv[1:]):
                 hits = parse_blast6_BBH(name_to_data.items())
                 db["hit_matrix"] += numpy.load(zip_reader(hits))
 
+        sys.stderr.write("syncing database\n")
         db.sync()
 
     if options.delete:
