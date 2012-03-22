@@ -31,24 +31,20 @@ def parse_options(arguments):
     parser = OptionParser(usage="%prog [options] <database.db>",
                           version="%prog " + str(__version__))
 
-    parser.add_option("--add",
+    parser.add_option("-a",
                       dest="add",
                       type="str",
                       metavar="[genomes.tab]",
                       default=False,
                       help="add these genomes to the database")
 
-    parser.add_option("--new",
-                      dest="new",
-                      action="store_true",
-                      default=False,
-                      help="create a new database")
-
-    parser.add_option("-f",
-                      dest="force",
-                      action="store_true",
-                      default=False,
-                      help="force overwrite")
+    parser.add_option("-d",
+                      dest="delete",
+                      type="str",
+                      action="append",
+                      metavar="Some_bacteria_sp_name",
+                      default=[],
+                      help="remove this genome from the database")
 
     parser.add_option("-c",
                       dest="num_procs",
@@ -62,7 +58,7 @@ def parse_options(arguments):
                       type="str",
                       metavar="[pbzip2]",
                       default=False,
-                      help="decompress blast files with this program")
+                      help="decompress BLAST files with this program")
 
     parser.add_option("--sbh",
                       dest="sbh",
@@ -82,18 +78,15 @@ def parse_options(arguments):
         parser.error("incorrect number of arguments")
         
     if options.add and not os.path.exists(options.add):
-        parser.error("--add file does not exist")
-
-    if options.new:
-        if os.path.exists(args[0]) and not options.force:
-            parser.error("--new specified but database already exists, use -f to overwrite")
-    elif not os.path.exists(args[0]):
-        parser.error("database file does not exist")
+        parser.error("file specified with --add does not exist")
 
     if options.sbh and options.bbh:
         parser.error("--sbh and --bbh are mutually exclusive")
     elif not (options.sbh or options.bbh):
         options.sbh = True
+
+    if options.add and options.delete:
+        parser.error("-a and -d are mutually exclusive")
 
 def read_input_file(in_fname):
     name_to_data = {}
@@ -345,7 +338,7 @@ def main(arguments=sys.argv[1:]):
     parse_options(arguments)
 
     # make a new database or load an existing one
-    if options.new:
+    if not os.path.exists(args[0]):
         db = new_db(args[0])
     else:
         db = shelve.open(args[0], flag="w", writeback=True)
