@@ -113,13 +113,14 @@ def index_fastas(name_to_data):
     for name, data in name_to_data.items():
         sys.stderr.write("  %s\n" % name)
 
-        genome_num = db["genome_to_num"][name]
+        genome_num = db["genomes"].index(name)
 
         for line in open(data["faa"], "r"):
             if line.startswith(">"):
                 cds = hash(line[1:-1])
 
                 db["cds_to_genome"][cds] = genome_num
+                db["cds_counts"][genome_num] += 1
 
 def parse_blast6_SBH_MP(name_to_data):
     # split into as many workers as we have
@@ -146,12 +147,12 @@ def parse_blast6_SBH_MP(name_to_data):
         db["hit_matrix"] += i
 
 def parse_blast6_SBH(name_to_data):
-    hits = numpy.zeros((len(db["genome_to_num"]), len(db["genome_to_num"])))
+    hits = numpy.zeros((len(db["genomes"]), len(db["genomes"])))
 
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
-        query_genome = db["genome_to_num"][name]
+        query_genome = db["genomes"].index(name)
 
         for line in zip_reader(data["blast6"]):
             line_split = line.rstrip("\n").split("\t")
@@ -222,7 +223,7 @@ def parse_blast6_BBH(name_to_data):
     for name, data in name_to_data:
         sys.stderr.write("  %s\n" % name)
 
-        query_genome = db["genome_to_num"][name]
+        query_genome = db["genomes"].index(name)
         
         hits = numpy.empty(1000000, dtype=[("cds_hash", numpy.int64),
                                            ("genome1", numpy.uint16),
@@ -311,10 +312,10 @@ class zip_writer():
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
-    
-    db["genomes"] = []
-    db["genome_to_num"] = {}
 
+    # index_fastas related stuff    
+    db["genomes"] = []
+    db["cds_counts"] = numpy.zeros(0)
     db["cds_to_genome"] = {}
 
     db["hit_matrix"] = numpy.zeros((0, 0))
@@ -349,7 +350,8 @@ def main(arguments=sys.argv[1:]):
         for name in name_to_data.keys():
             db["genomes"].append(name)
 
-        db["genome_to_num"] = dict([(y, x) for x, y in enumerate(db["genomes"])])
+        db["cds_counts"].resize(len(db["genomes"]))
+
         db.sync()
 
         # index FASTAs
@@ -381,8 +383,8 @@ def main(arguments=sys.argv[1:]):
         
         for genome in options.delete:
             try:
-                genome_num = db["genome_to_num"][genome]
-            except KeyError:
+                genome_num = db["genomes"].index(genome)
+            except ValueError:
                 raise ValueError("%s is not in the database" % genome)
 
             checked_genomes[genome] = genome_num
