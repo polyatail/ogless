@@ -153,7 +153,7 @@ def parse_blast6_SBH(name_to_data):
 
         query_genome = db["genome_to_num"][name]
 
-        for line in zip_wrapper(data["blast6"]):
+        for line in zip_reader(data["blast6"]):
             line_split = line.rstrip("\n").split("\t")
             
             cds1 = hash(line_split[0])
