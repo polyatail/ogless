@@ -121,7 +121,7 @@ def genome2kmers(name_to_data, length):
     work_queue = Queue()
     result_queue = Queue()
     
-    for name, data in name_to_data.items()[:500]:
+    for name, data in name_to_data.items():
         work_queue.put((name, data["faa"], length))
         
     for i in range(30):
