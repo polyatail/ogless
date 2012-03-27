@@ -112,7 +112,12 @@ def genome2kmers_worker(work_queue, result_queue):
             seq = str(seq_rec.seq)
             
             for i in range(0, len(seq) - length, length):
-                kmers[kmer_count] = hash(seq[i:i + length])
+                try:
+                    kmers[kmer_count] = hash(seq[i:i + length])
+                except IndexError:
+                    kmers.resize(len(kmers) + 100000)
+                    kmers[kmer_count] = hash(seq[i:i + length])
+
                 kmer_count += 1
                     
         threads.append(Thread(target=result_queue.put, args=((name, numpy.unique(kmers)),)))
