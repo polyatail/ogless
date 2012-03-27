@@ -407,6 +407,9 @@ def main(arguments=sys.argv[1:]):
             db["hit_matrix"] = numpy.delete(db["hit_matrix"], genome_num, 0)
             db["hit_matrix"] = numpy.delete(db["hit_matrix"], genome_num, 1)
 
+            # remove cds counts
+            db["cds_counts"] = numpy.delete(db["cds_counts"], genome_num)
+
             sys.stderr.write("    removed cols/rows\n")
 
             # nuke every CDS belonging to this genome
