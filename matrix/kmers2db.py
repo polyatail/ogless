@@ -171,13 +171,17 @@ def kmers2int_worker(work_queue, result_queue):
         if data == False:
             break
         else:
+            result_data = []
+            
             for name1, name2 in data:
                 kmers1 = name_to_kmers[name1]
                 kmers2 = name_to_kmers[name2]
 
                 set_int = numpy.intersect1d(kmers1, kmers2)
                 
-                result_queue.put((name1, name2, len(set_int)))
+                result_data.append((name1, name2, len(set_int)))
+
+            result_queue.put(result_data)
 
 def kmers2int():
     work_queue = Queue()
@@ -204,28 +208,33 @@ def kmers2int():
     for p in processes:
         p.start()
 
-    sys.stderr.write("filling in matrix\n")
+    sys.stderr.write("populating matrix\n")
     elements_added = 0
+    status_changed = True
 
     while True:
         try:
-            data = result_queue.get(block=False)
+            result_data = result_queue.get(block=False)
             
-            db["hit_matrix"][genomes.index(data[0])][genomes.index(data[1])] = data[2]
-
-            elements_added += 1
+            for data in result_data: 
+                db["hit_matrix"][genomes.index(data[0])][genomes.index(data[1])] = data[2]
+    
+            elements_added += len(result_data)
+            status_changed = True
         except Empty:
             pass
         
         if sum([1 for x in processes if x.is_alive()]) == 0:
             break
 
-        sys.stderr.write("\r  %s/%s completed" % (elements_added, num_work_to_do))
+        if status_changed and elements_added % 100 == 0:
+            sys.stderr.write("\r  %s/%s completed" % (elements_added, num_work_to_do))
+            status_changed = False
 
     for p in processes:
         p.join()
         
-    sys.stderr.write("\n")
+    sys.stderr.write("\r  %s/%s completed\n" % (elements_added, num_work_to_do))
 
 def mv2shmem():
     sys.stderr.write("copying to shared memory\n")
