@@ -341,10 +341,10 @@ def main(arguments=sys.argv[1:]):
     else:
         db = shelve.open(args[0], flag="w", writeback=True)
 
-        if options.sbh and db["algorithm"] == "BBH":
-            raise ValueError("Database was generated using BBH, cannot use --sbh")
-        elif options.bbh and db["algorithm"] == "SBH":
-            raise ValueError("Database was generated using SBH, cannot use --bbh")
+        if options.sbh and db["algorithm"] != "SBH":
+            raise ValueError("Cannot use --sbh with database not generated with SBH")
+        elif options.bbh and db["algorithm"] != "BBH":
+            raise ValueError("Cannot use --sbh with database not generated with SBH")
 
     # add some data to the db
     if options.add:

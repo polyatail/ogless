@@ -177,6 +177,8 @@ def main(arguments=sys.argv[1:]):
                 raise ValueError("BBH matrix not symmetrical")
             
             return x[0]
+    else:
+        raise ValueError("Unknown algorithm type '%s'" % (db["algorithm"],))
 
     matrix = similarity_matrix(db, sim_func, check_func)
     
