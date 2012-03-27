@@ -45,6 +45,12 @@ def parse_options(arguments):
                       default=1,
                       help="number of concurrent processes")
 
+    parser.add_option("--shmem",
+                      dest="shmem",
+                      action="store_true",
+                      default=False,
+                      help="store k-mers in shared memory")
+
     parser.add_option("-l",
                       dest="kmer_length",
                       type="int",
@@ -97,7 +103,7 @@ def genome2kmers_worker(work_queue, result_queue):
         else:
             name, in_fname, length = data
 
-        sys.stderr.write("  %s\n" % name)
+        sys.stderr.write("\r  %s/%s %-50s" % (db["genomes"].index(name) + 1, len(db["genomes"]), name[:50]))
     
         kmers = numpy.zeros(1000000, dtype=numpy.int64)
         kmer_count = 0
@@ -130,6 +136,8 @@ def genome2kmers(name_to_data, length):
     processes = [Process(target=genome2kmers_worker,
                          args=(work_queue, result_queue)) for i in range(30)]
 
+    sys.stderr.write("finding k-mers of length=%s in gene calls\n" % (length,))
+
     for p in processes:
         p.start()
         
@@ -149,6 +157,8 @@ def genome2kmers(name_to_data, length):
 
     for p in processes:
         p.join()
+
+    sys.stderr.write("\n")
 
     name_to_kmers = dict(result_data)
 
@@ -218,8 +228,16 @@ def kmers2int():
     sys.stderr.write("\n")
 
 def mv2shmem():
-    for name in name_to_kmers.keys():
+    sys.stderr.write("copying to shared memory\n")
+    
+    num_work_to_do = len(name_to_kmers.keys())
+    
+    for num, name in enumerate(name_to_kmers.keys()):
         name_to_kmers[name] = numpy.frombuffer(Array("l", name_to_kmers[name]).get_obj())
+
+        sys.stderr.write("\r  %s/%s" % (num, num_work_to_do))
+
+    sys.stderr.write("\r  %s/%s\n" % (num, num_work_to_do))
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
@@ -273,7 +291,10 @@ def main(arguments=sys.argv[1:]):
         db["hit_matrix"].resize((len(db["genomes"]), len(db["genomes"])))
 
         genome2kmers(name_to_data, options.kmer_length)
-        mv2shmem()
+        
+        if options.shmem:
+            mv2shmem()
+
         kmers2int()
 
     if options.delete:
