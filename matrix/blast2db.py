@@ -54,7 +54,7 @@ def parse_options(arguments):
     parser.add_option("-z",
                       dest="zip_prog",
                       type="str",
-                      metavar="[pbzip2]",
+                      metavar="[none]",
                       default=False,
                       help="decompress BLAST files with this program")
 
@@ -85,6 +85,9 @@ def parse_options(arguments):
 
     if options.add and options.delete:
         parser.error("-a and -d are mutually exclusive")
+
+    if options.zip_prog in ("none", "false", "off"):
+        options.zip_prog = False
 
 def read_input_file(in_fname):
     name_to_data = {}
@@ -318,6 +321,8 @@ def new_db(out_fname):
     db["cds_counts"] = numpy.zeros(0)
     db["cds_to_genome"] = {}
 
+    # BLAST parsing related stuff
+    db["algorithm"] = "SBH" if options.sbh else "BBH"
     db["hit_matrix"] = numpy.zeros((0, 0))
     
     db.sync()
@@ -335,6 +340,11 @@ def main(arguments=sys.argv[1:]):
         db = new_db(args[0])
     else:
         db = shelve.open(args[0], flag="w", writeback=True)
+
+        if options.sbh and db["algorithm"] == "BBH":
+            raise ValueError("Database was generated using BBH, cannot use --sbh")
+        elif options.bbh and db["algorithm"] == "SBH":
+            raise ValueError("Database was generated using SBH, cannot use --bbh")
 
     # add some data to the db
     if options.add:
@@ -366,11 +376,7 @@ def main(arguments=sys.argv[1:]):
         sys.stderr.write("parsing blast6 results\n")
 
         if options.sbh:
-            if options.num_procs > 1:
-                parse_blast6_SBH_MP(name_to_data)
-            else:
-                hits = parse_blast6_SBH(name_to_data.items())
-                db["hit_matrix"] += hits
+            parse_blast6_SBH_MP(name_to_data)
         elif options.bbh:
             parse_blast6_BBH_MP(name_to_data)
 
