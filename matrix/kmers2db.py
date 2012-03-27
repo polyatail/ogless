@@ -130,11 +130,11 @@ def genome2kmers(name_to_data, length):
     for name, data in name_to_data.items():
         work_queue.put((name, data["faa"], length))
         
-    for i in range(30):
+    for i in range(options.num_procs):
         work_queue.put(False)
         
     processes = [Process(target=genome2kmers_worker,
-                         args=(work_queue, result_queue)) for i in range(30)]
+                         args=(work_queue, result_queue)) for i in range(options.num_procs)]
 
     sys.stderr.write("finding k-mers of length=%s in gene calls\n" % (length,))
 
@@ -195,11 +195,11 @@ def kmers2int():
 
         work_queue.put(batch)
         
-    for i in range(30):
+    for i in range(options.num_procs):
         work_queue.put(False)
         
     processes = [Process(target=kmers2int_worker,
-                         args=(work_queue, result_queue)) for i in range(30)]
+                         args=(work_queue, result_queue)) for i in range(options.num_procs)]
 
     for p in processes:
         p.start()
