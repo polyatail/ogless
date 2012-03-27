@@ -12,6 +12,7 @@ from collections import defaultdict
 import shelve
 import itertools
 import numpy
+import scipy
 import textwrap
 
 class BetterFormatter(IndentedHelpFormatter):
@@ -130,6 +131,10 @@ def dice(sizeA, sizeB, size_int):
 def similarity_matrix(db, sim_func, check_func):
     matrix = numpy.zeros((len(db["genomes"]), len(db["genomes"])))
 
+    sys.stderr.write("populating matrix\n")
+    num_work_to_do = int(scipy.comb(len(db["genomes"]), 2))
+    work_done = 0
+
     for nameA, nameB in itertools.combinations(db["genomes"], 2):
         nameA_num = db["genomes"].index(nameA)
         nameB_num = db["genomes"].index(nameB)
@@ -142,6 +147,13 @@ def similarity_matrix(db, sim_func, check_func):
 
         matrix[nameA_num][nameB_num] = sim_func(sizeA, sizeB, hits_count)
         matrix[nameB_num][nameA_num] = sim_func(sizeB, sizeA, hits_count)
+        
+        work_done += 1
+        
+        if work_done % 100 == 0:
+            sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
+
+    sys.stderr.write("\r  %s/%s completed\n" % (work_done, num_work_to_do))
 
     return matrix
 
@@ -177,6 +189,8 @@ def main(arguments=sys.argv[1:]):
                 raise ValueError("BBH matrix not symmetrical")
             
             return x[0]
+    elif db["algorithm"] == "kmers":
+        check_func = max
     else:
         raise ValueError("Unknown algorithm type '%s'" % (db["algorithm"],))
 
