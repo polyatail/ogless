@@ -3,8 +3,9 @@
 import sys
 import os
 import numpy
+import scipy
 import itertools
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Array
 from threading import Thread
 from Queue import Empty
 
@@ -33,7 +34,7 @@ def read_input_file(in_fname):
 
     return name_to_data
 
-def genome2kmers_MP_worker(work_queue, result_queue):
+def genome2kmers_worker(work_queue, result_queue):
     threads = []
 
     while True:
@@ -62,17 +63,18 @@ def genome2kmers_MP_worker(work_queue, result_queue):
     for t in threads:
         t.join()
     
-def genome2kmers_MP(name_to_data, length):
+def genome2kmers(name_to_data, length):
     work_queue = Queue()
     result_queue = Queue()
     
-    for name, data in name_to_data.items()[:100]:
+    for name, data in name_to_data.items()[:500]:
         work_queue.put((name, data["faa"], length))
         
     for i in range(30):
         work_queue.put(False)
         
-    processes = [Process(target=genome2kmers_MP_worker, args=(work_queue, result_queue)) for i in range(30)]
+    processes = [Process(target=genome2kmers_worker,
+                         args=(work_queue, result_queue)) for i in range(30)]
 
     for p in processes:
         p.start()
@@ -91,9 +93,9 @@ def genome2kmers_MP(name_to_data, length):
     for p in processes:
         p.join()
 
-    return result_data
+    return dict(result_data)
 
-def kmers2jaccard_MP_worker(work_queue, result_queue):
+def kmers2distance_worker(work_queue, result_queue):
     threads = []
 
     while True:
@@ -102,61 +104,84 @@ def kmers2jaccard_MP_worker(work_queue, result_queue):
         if data == False:
             break
         else:
-            result1, result2 = data
+            for name1, name2 in data:
+                kmers1 = name_to_kmers[name1]
+                kmers2 = name_to_kmers[name2]
 
-            set_intersection = numpy.unique(numpy.intersect1d(result1[1], result2[1]))
-            set_union = numpy.unique(numpy.concatenate((result1[1], result2[1])))
+                set_int = numpy.intersect1d(kmers1, kmers2)
+                set_union = numpy.union1d(kmers1, kmers2)
+
+                jaccard = float(len(set_int)) / float(len(set_union))
+                dice = float(len(set_int) * 2) / float(len(kmers1) + len(kmers2) - len(set_int) * 2)
     
-            jaccard = float(len(set_intersection)) / float(len(set_union))
-            dice = float(len(set_intersection)) / float(len(set_intersection) + 0.5 * (len(result1[1]) - len(set_intersection) + len(result2[1]) - len(set_intersection)))
+                result_queue.put((name1, name2, dice, jaccard))
 
-            threads.append(Thread(target=result_queue.put, args=((result1[0], result2[0], dice),)))
-            threads[-1].start()
-        
-    for t in threads:
-        t.join()
-
-def kmers2jaccard_MP(kmers):
+def kmers2distance():
     work_queue = Queue()
     result_queue = Queue()
 
-    genomes = [x[0] for x in kmers]
+    genomes = name_to_kmers.keys()
+    work_to_do = itertools.combinations(genomes, 2)
+    num_work_to_do = scipy.comb(len(genomes), 2)
     
-    for x, y in itertools.combinations(kmers, 2):
-        work_queue.put((x, y))
+    while True:
+        batch = list(itertools.islice(work_to_do, 1000))
+        
+        if not batch:
+            break
+
+        work_queue.put(batch)
         
     for i in range(30):
         work_queue.put(False)
         
-    processes = [Process(target=kmers2jaccard_MP_worker, args=(work_queue, result_queue)) for i in range(30)]
+    processes = [Process(target=kmers2distance_worker,
+                         args=(work_queue, result_queue)) for i in range(30)]
 
     for p in processes:
         p.start()
         
-    result_matrix = numpy.zeros((len(kmers), len(kmers)), dtype=numpy.float64)
-        
+    dice_matrix = numpy.zeros((len(genomes), len(genomes)), dtype=numpy.float64)
+    jaccard_matrix = numpy.zeros((len(genomes), len(genomes)), dtype=numpy.float64)
+
+    elements_added = 0
+
     while True:
         try:
             data = result_queue.get(block=False)
 
-            result_matrix[genomes.index(data[0])][genomes.index(data[1])] = data[2]
+            dice_matrix[genomes.index(data[0])][genomes.index(data[1])] = data[2]
+            jaccard_matrix[genomes.index(data[0])][genomes.index(data[1])] = data[3]
+
+            elements_added += 1
         except Empty:
             pass
         
         if sum([1 for x in processes if x.is_alive()]) == 0:
             break
 
+        sys.stderr.write("\r%s/%s completed" % (elements_added, num_work_to_do))
+
     for p in processes:
         p.join()
 
-    return result_matrix
+    return dice_matrix, jaccard_matrix
+
+def mv2shmem():
+    for name in name_to_kmers.keys():
+        name_to_kmers[name] = numpy.frombuffer(Array("l", name_to_kmers[name]).get_obj())
 
 def main():
     sys.stderr.write("reading input file\n")
     name_to_data = read_input_file(sys.argv[1])
     
-    kmers = genome2kmers_MP(name_to_data, 5)  
-    jaccards = kmers2jaccard_MP(kmers)
+    global name_to_kmers    
+    
+    name_to_kmers = genome2kmers(name_to_data, 5)
+    
+    mv2shmem()
+
+    jaccards = kmers2distance()
     
     import pdb; pdb.set_trace()
 
