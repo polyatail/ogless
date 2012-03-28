@@ -170,8 +170,6 @@ def genome2kmers(name_to_data, length):
 def kmers2int_worker(work_queue, result_queue):
     intersect1d = numpy.intersect1d
 
-    threads = []
-
     while True:
         data = work_queue.get(block=True)
         
