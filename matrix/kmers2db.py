@@ -57,7 +57,14 @@ def parse_options(arguments):
                       type="int",
                       metavar="[5]",
                       default=5,
-                      help="length of non-overlapping k-mers")
+                      help="length of k-mers")
+
+    parser.add_option("-b",
+                      dest="bump",
+                      type="int",
+                      metavar="[5]",
+                      default=5,
+                      help="skip this many positions between k-mers")
 
     options, args = parser.parse_args()
 
@@ -69,6 +76,12 @@ def parse_options(arguments):
 
     if options.add and options.delete:
         parser.error("-a and -d are mutually exclusive")
+        
+    if options.kmer_length < 1:
+        parser.error("-l must be at least 1")
+        
+    if options.bump < 1:
+        parser.error("-b must be at least 1")
 
 def read_input_file(in_fname):
     name_to_data = {}
@@ -113,7 +126,7 @@ def genome2kmers_worker(work_queue, result_queue):
         for seq_rec in SeqIO.parse(in_fname, "fasta"):
             seq = str(seq_rec.seq)
             
-            for i in range(0, len(seq) - length, length):
+            for i in range(0, len(seq) - length, options.bump):
                 try:
                     kmers[kmer_count] = hash(seq[i:i + length])
                 except IndexError:
@@ -128,14 +141,14 @@ def genome2kmers_worker(work_queue, result_queue):
     for t in threads:
         t.join()
     
-def genome2kmers(name_to_data, length):
+def genome2kmers(name_to_data):
     global num_to_kmers
 
     work_queue = Queue()
     result_queue = Queue()
     
     for num, data in enumerate(name_to_data.values()):
-        work_queue.put((num, data["faa"], length))
+        work_queue.put((num, data["faa"], options.kmer_length))
         
     for i in range(options.num_tasks):
         work_queue.put(False)
@@ -143,7 +156,8 @@ def genome2kmers(name_to_data, length):
     tasks = [Process(target=genome2kmers_worker,
                      args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
-    sys.stderr.write("finding %s-mers in gene calls\n" % (length,))
+    sys.stderr.write("finding %s-mers skip %s in gene calls\n" % (options.kmer_length,
+                                                                  options.bump))
 
     for t in tasks:
         t.start()
@@ -268,8 +282,6 @@ def kmers2int():
     sys.stderr.write("\r%-79s\n" % ("  %s/%s completed in %s" % (work_done,
                      num_work_to_do, formattime(time.time() - true_s_time)),))
 
-    import pdb; pdb.set_trace()
-
 def formattime(secs):
     secs = int(secs)
 
@@ -336,10 +348,7 @@ def main(arguments=sys.argv[1:]):
         # resize the hit matrix to accomodate more genomes
         db["hit_matrix"].resize((len(db["genomes"]), len(db["genomes"])))
 
-        genome2kmers(name_to_data, options.kmer_length)
-        
-        if options.shmem:
-            mv2shmem()
+        genome2kmers(name_to_data)
 
         kmers2int()
 
@@ -371,7 +380,6 @@ def main(arguments=sys.argv[1:]):
             db["cds_counts"] = numpy.delete(db["cds_counts"], genome_num)
 
             sys.stderr.write("    removed cols/rows\n")
-
 
 if __name__ == "__main__":
     main()
