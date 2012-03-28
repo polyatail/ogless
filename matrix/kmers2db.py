@@ -39,11 +39,11 @@ def parse_options(arguments):
                       help="remove this genome from the database")
 
     parser.add_option("-c",
-                      dest="num_procs",
+                      dest="num_tasks",
                       type="int",
                       metavar="[1]",
                       default=1,
-                      help="number of concurrent processes")
+                      help="number of concurrent tasks")
 
     parser.add_option("--shmem",
                       dest="shmem",
@@ -101,9 +101,9 @@ def genome2kmers_worker(work_queue, result_queue):
         if data == False:
             break
         else:
-            name, in_fname, length = data
+            num, in_fname, length = data
 
-        sys.stderr.write("\r  %s/%s %-50s" % (db["genomes"].index(name) + 1, len(db["genomes"]), name[:50]))
+        sys.stderr.write("\r  %s/%s %-50s" % (num + 1, len(db["genomes"]), db["genomes"][num][:50]))
     
         kmers = numpy.zeros(1000000, dtype=numpy.int64)
         kmer_count = 0
@@ -120,26 +120,26 @@ def genome2kmers_worker(work_queue, result_queue):
 
                 kmer_count += 1
                     
-        threads.append(Thread(target=result_queue.put, args=((name, numpy.unique(kmers)),)))
+        threads.append(Thread(target=result_queue.put, args=((num, numpy.unique(kmers)),)))
         threads[-1].start()
         
     for t in threads:
         t.join()
     
 def genome2kmers(name_to_data, length):
-    global name_to_kmers
+    global num_to_kmers
 
     work_queue = Queue()
     result_queue = Queue()
     
-    for name, data in name_to_data.items():
-        work_queue.put((name, data["faa"], length))
+    for num, data in enumerate(name_to_data.items()):
+        work_queue.put((num, data["faa"], length))
         
-    for i in range(options.num_procs):
+    for i in range(options.num_tasks):
         work_queue.put(False)
         
     processes = [Process(target=genome2kmers_worker,
-                         args=(work_queue, result_queue)) for i in range(options.num_procs)]
+                         args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
     sys.stderr.write("finding k-mers of length=%s in gene calls\n" % (length,))
 
@@ -165,7 +165,7 @@ def genome2kmers(name_to_data, length):
 
     sys.stderr.write("\n")
 
-    name_to_kmers = dict(result_data)
+    num_to_kmers = dict(result_data)
 
 def kmers2int_worker(work_queue, work_done):
     intersect1d = numpy.intersect1d
@@ -176,22 +176,18 @@ def kmers2int_worker(work_queue, work_done):
         if data == False:
             break
         else:
-            for name1, name2 in data:
-                kmers1 = name_to_kmers[name1]
-                kmers2 = name_to_kmers[name2]
-
-                set_int = intersect1d(kmers1, kmers2, assume_unique=True)
-               
-                db["hit_matrix"][db["genomes"].index(name1)][db["genomes"].index(name2)] = set_int 
+            for num1, num2 in data:
+                db["hit_matrix"][num1][num2] = len(intersect1d(num_to_kmers[num1],
+                                                               num_to_kmers[num2],
+                                                               assume_unique=True))
 
                 work_done += 1
 
 def kmers2int():
     work_queue = ThreadQueue()
 
-    genomes = db["genomes"]
-    work_to_do = itertools.combinations(genomes, 2)
-    num_work_to_do = int(scipy.comb(len(genomes), 2))
+    work_to_do = itertools.combinations(range(len(db["genomes"])), 2)
+    num_work_to_do = int(scipy.comb(len(db["genomes"]), 2))
     work_done = 0
     
     while True:
@@ -202,11 +198,11 @@ def kmers2int():
 
         work_queue.put(batch)
         
-    for i in range(options.num_procs):
+    for i in range(options.num_tasks):
         work_queue.put(False)
         
     threads = [Thread(target=kmers2int_worker,
-                      args=(work_queue, work_done)) for i in range(options.num_procs)]
+                      args=(work_queue, work_done)) for i in range(options.num_tasks)]
 
     for t in threads:
         t.start()
@@ -228,11 +224,11 @@ def kmers2int():
 def mv2shmem():
     sys.stderr.write("copying to shared memory\n")
     
-    num_work_to_do = len(name_to_kmers.keys())
+    num_work_to_do = len(num_to_kmers.keys())
     
-    for num, name in enumerate(name_to_kmers.keys()):
-        new_array = numpy.frombuffer(RawArray("l", len(name_to_kmers[name])))
-        name_to_kmers[name] = new_array
+    for num, name in enumerate(num_to_kmers.keys()):
+        new_array = numpy.frombuffer(RawArray("l", len(num_to_kmers[name])))
+        num_to_kmers[name] = new_array
         sys.stderr.write("\r  %s/%s" % (num, num_work_to_do))
 
     sys.stderr.write("\r  %s/%s\n" % (num, num_work_to_do))
@@ -256,7 +252,7 @@ def main(arguments=sys.argv[1:]):
     parse_options(arguments)
 
     # cheat by making the database and shared memory dict global
-    global db, name_to_kmers
+    global db, num_to_kmers
 
     # make a new database or load an existing one
     if not os.path.exists(args[0]):
