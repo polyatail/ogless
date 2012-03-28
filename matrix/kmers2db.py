@@ -12,9 +12,10 @@ import numpy
 import scipy
 import itertools
 import shelve
+import time
 from multiprocessing import Process, Queue, RawArray
 from threading import Thread
-from Queue import Empty
+from Queue import Empty, Queue as ThreadQueue
 from Bio import SeqIO
 
 def parse_options(arguments):
@@ -132,7 +133,7 @@ def genome2kmers(name_to_data, length):
     work_queue = Queue()
     result_queue = Queue()
     
-    for num, data in enumerate(name_to_data.items()):
+    for num, data in enumerate(name_to_data.values()):
         work_queue.put((num, data["faa"], length))
         
     for i in range(options.num_tasks):
@@ -153,7 +154,7 @@ def genome2kmers(name_to_data, length):
             data = result_queue.get(block=False)
             
             result_data.append((data[0], data[1]))
-            db["cds_counts"][db["genomes"].index(data[0])] = len(data[1])
+            db["cds_counts"][num] = len(data[1])
         except Empty:
             pass
         
@@ -167,8 +168,9 @@ def genome2kmers(name_to_data, length):
 
     num_to_kmers = dict(result_data)
 
-def kmers2int_worker(work_queue, work_done):
+def kmers2int_worker(work_queue, result_queue):
     intersect1d = numpy.intersect1d
+    hit_matrix = db["hit_matrix"]
 
     while True:
         data = work_queue.get(block=True)
@@ -177,18 +179,18 @@ def kmers2int_worker(work_queue, work_done):
             break
         else:
             for num1, num2 in data:
-                db["hit_matrix"][num1][num2] = len(intersect1d(num_to_kmers[num1],
-                                                               num_to_kmers[num2],
-                                                               assume_unique=True))
-
-                work_done += 1
+                hit_matrix[num1][num2] = intersect1d(num_to_kmers[num1],
+                                                     num_to_kmers[num2],
+                                                     assume_unique=True).size
+    
+            result_queue.put(len(data))
 
 def kmers2int():
     work_queue = ThreadQueue()
+    result_queue = ThreadQueue()
 
     work_to_do = itertools.combinations(range(len(db["genomes"])), 2)
     num_work_to_do = int(scipy.comb(len(db["genomes"]), 2))
-    work_done = 0
     
     while True:
         batch = list(itertools.islice(work_to_do, 1000))
@@ -202,24 +204,61 @@ def kmers2int():
         work_queue.put(False)
         
     threads = [Thread(target=kmers2int_worker,
-                      args=(work_queue, work_done)) for i in range(options.num_tasks)]
+                      args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
     for t in threads:
         t.start()
 
     sys.stderr.write("populating matrix\n")
+    work_done = 0
+    
+    s_time = time.time()
 
     while True:
+        while True:
+            try:
+                work_done += result_queue.get(block=False)
+            except Empty:
+                break
+        
         if sum([1 for x in threads if x.is_alive()]) == 0:
             break
 
         if work_done % 100 == 0:
-            sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
+            delta_time = time.time() - s_time
+            work_per_time = float(work_done) / float(delta_time)
+            
+            try:
+                time_to_finish = (num_work_to_do - work_done) / work_per_time
+            except ZeroDivisionError:
+                time_to_finish = 0
+            
+            sys.stderr.write("%-79s" % ("\r  %s/%s completed [%.2f/s, %s remaining]" % (work_done,
+                             num_work_to_do, work_per_time, formattime(time_to_finish)),))
+
+        time.sleep(0.1)
 
     for t in threads:
         t.join()
         
     sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
+    
+    import pdb; pdb.set_trace()
+
+def formattime(secs):
+    secs = int(secs)
+
+    hours = secs / 3600
+    secs -= 3600 * hours
+    minutes = secs / 60
+    secs -= 60 * minutes
+
+    if hours == 0 and minutes == 0:
+        return "%ds" % (secs,)
+    elif hours == 0:
+        return "%dm %ds" % (minutes, secs)
+    else:
+        return "%dh %dm %ds" % (hours, minutes, secs)
 
 def mv2shmem():
     sys.stderr.write("copying to shared memory\n")
@@ -229,9 +268,9 @@ def mv2shmem():
     for num, name in enumerate(num_to_kmers.keys()):
         new_array = numpy.frombuffer(RawArray("l", len(num_to_kmers[name])))
         num_to_kmers[name] = new_array
-        sys.stderr.write("\r  %s/%s" % (num, num_work_to_do))
+        sys.stderr.write("\r  %s/%s" % (num + 1, num_work_to_do))
 
-    sys.stderr.write("\r  %s/%s\n" % (num, num_work_to_do))
+    sys.stderr.write("\r  %s/%s\n" % (num + 1, num_work_to_do))
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
