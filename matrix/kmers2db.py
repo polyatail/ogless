@@ -140,13 +140,13 @@ def genome2kmers(name_to_data, length):
     for i in range(options.num_tasks):
         work_queue.put(False)
         
-    processes = [Process(target=genome2kmers_worker,
-                         args=(work_queue, result_queue)) for i in range(options.num_tasks)]
+    tasks = [Process(target=genome2kmers_worker,
+                     args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
     sys.stderr.write("finding %s-mers in gene calls\n" % (length,))
 
-    for p in processes:
-        p.start()
+    for t in tasks:
+        t.start()
         
     result_data = []
         
@@ -159,11 +159,11 @@ def genome2kmers(name_to_data, length):
         except Empty:
             pass
         
-        if sum([1 for x in processes if x.is_alive()]) == 0:
+        if sum([1 for x in tasks if x.is_alive()]) == 0:
             break
 
-    for p in processes:
-        p.join()
+    for t in tasks:
+        t.join()
 
     sys.stderr.write("\n")
 
