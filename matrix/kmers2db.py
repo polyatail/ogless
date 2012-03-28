@@ -12,7 +12,7 @@ import numpy
 import scipy
 import itertools
 import shelve
-from multiprocessing import Process, Queue, Array
+from multiprocessing import Process, Queue, RawArray
 from threading import Thread
 from Queue import Empty
 from Bio import SeqIO
@@ -168,6 +168,8 @@ def genome2kmers(name_to_data, length):
     name_to_kmers = dict(result_data)
 
 def kmers2int_worker(work_queue, result_queue):
+    intersect1d = numpy.intersect1d
+
     threads = []
 
     while True:
@@ -182,7 +184,7 @@ def kmers2int_worker(work_queue, result_queue):
                 kmers1 = name_to_kmers[name1]
                 kmers2 = name_to_kmers[name2]
 
-                set_int = numpy.intersect1d(kmers1, kmers2)
+                set_int = intersect1d(kmers1, kmers2, assume_unique=True)
                 
                 result_data.append((name1, name2, len(set_int)))
 
@@ -247,8 +249,7 @@ def mv2shmem():
     num_work_to_do = len(name_to_kmers.keys())
     
     for num, name in enumerate(name_to_kmers.keys()):
-        name_to_kmers[name] = numpy.frombuffer(Array("l", name_to_kmers[name]).get_obj())
-
+        name_to_kmers[name] = numpy.frombuffer(RawArray("l", name_to_kmers[name]))
         sys.stderr.write("\r  %s/%s" % (num, num_work_to_do))
 
     sys.stderr.write("\r  %s/%s\n" % (num, num_work_to_do))
