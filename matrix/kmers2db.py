@@ -249,7 +249,8 @@ def mv2shmem():
     num_work_to_do = len(name_to_kmers.keys())
     
     for num, name in enumerate(name_to_kmers.keys()):
-        name_to_kmers[name] = numpy.frombuffer(RawArray("l", name_to_kmers[name]))
+        new_array = numpy.frombuffer(RawArray("l", len(name_to_kmers[name])))
+        name_to_kmers[name] = new_array
         sys.stderr.write("\r  %s/%s" % (num, num_work_to_do))
 
     sys.stderr.write("\r  %s/%s\n" % (num, num_work_to_do))
