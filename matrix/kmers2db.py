@@ -154,8 +154,16 @@ def genome2kmers(name_to_data, length):
         try:
             data = result_queue.get(block=False)
             
-            result_data.append((data[0], data[1]))
             db["cds_counts"][data[0]] = len(data[1])
+            
+            if options.shmem:
+                new_array = numpy.frombuffer(RawArray("l", len(data[1])), dtype=numpy.int64)
+                new_array[:] = data[1]
+                new_array.setflags(write=False)
+                
+                result_data.append((data[0], new_array))
+            else:
+                result_data.append((data[0], data[1]))            
         except Empty:
             pass
         
@@ -190,7 +198,7 @@ def kmers2int():
     result_queue = Queue()
 
     work_to_do = itertools.combinations(range(len(db["genomes"])), 2)
-    num_work_to_do = int(scipy.comb(len(db["genomes"]), 2))
+    num_work_to_do = int(round(scipy.comb(len(db["genomes"]), 2)))
     
     while True:
         batch = list(itertools.islice(work_to_do, 1000))
@@ -233,8 +241,12 @@ def kmers2int():
             break
 
         if status_change and work_done % 100 == 0:
+            try:
+                work_per_time = float(100 * len(delta_time)) / float(sum(delta_time))
+            except ZeroDivisionError:
+                work_per_time = 0
+
             delta_time.append(time.time() - s_time)
-            work_per_time = float(100 * len(delta_time)) / float(sum(delta_time))
             
             try:
                 time_to_finish = (num_work_to_do - work_done) / work_per_time
@@ -272,18 +284,6 @@ def formattime(secs):
         return "%dm %ds" % (minutes, secs)
     else:
         return "%dh %dm %ds" % (hours, minutes, secs)
-
-def mv2shmem():
-    sys.stderr.write("copying to shared memory\n")
-    
-    num_work_to_do = len(num_to_kmers.keys())
-    
-    for num, name in enumerate(num_to_kmers.keys()):
-        new_array = numpy.frombuffer(RawArray("l", len(num_to_kmers[name])))
-        num_to_kmers[name] = new_array
-        sys.stderr.write("\r  %s/%s" % (num + 1, num_work_to_do))
-
-    sys.stderr.write("\r  %s/%s\n" % (num + 1, num_work_to_do))
 
 def new_db(out_fname):
     db = shelve.open(out_fname, flag="n", protocol=-1, writeback=True)
