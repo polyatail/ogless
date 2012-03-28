@@ -167,7 +167,7 @@ def genome2kmers(name_to_data, length):
 
     name_to_kmers = dict(result_data)
 
-def kmers2int_worker(work_queue, result_queue):
+def kmers2int_worker(work_queue, work_done):
     intersect1d = numpy.intersect1d
 
     while True:
@@ -176,25 +176,23 @@ def kmers2int_worker(work_queue, result_queue):
         if data == False:
             break
         else:
-            result_data = []
-            
             for name1, name2 in data:
                 kmers1 = name_to_kmers[name1]
                 kmers2 = name_to_kmers[name2]
 
                 set_int = intersect1d(kmers1, kmers2, assume_unique=True)
-                
-                result_data.append((name1, name2, len(set_int)))
+               
+                db["hit_matrix"][db["genomes"].index(name1)][db["genomes"].index(name2)] = set_int 
 
-            result_queue.put(result_data)
+                work_done += 1
 
 def kmers2int():
-    work_queue = Queue()
-    result_queue = Queue()
+    work_queue = ThreadQueue()
 
     genomes = db["genomes"]
     work_to_do = itertools.combinations(genomes, 2)
     num_work_to_do = int(scipy.comb(len(genomes), 2))
+    work_done = 0
     
     while True:
         batch = list(itertools.islice(work_to_do, 1000))
@@ -207,39 +205,25 @@ def kmers2int():
     for i in range(options.num_procs):
         work_queue.put(False)
         
-    processes = [Process(target=kmers2int_worker,
-                         args=(work_queue, result_queue)) for i in range(options.num_procs)]
+    threads = [Thread(target=kmers2int_worker,
+                      args=(work_queue, work_done)) for i in range(options.num_procs)]
 
-    for p in processes:
-        p.start()
+    for t in threads:
+        t.start()
 
     sys.stderr.write("populating matrix\n")
-    elements_added = 0
-    status_changed = True
 
     while True:
-        try:
-            result_data = result_queue.get(block=False)
-            
-            for data in result_data: 
-                db["hit_matrix"][genomes.index(data[0])][genomes.index(data[1])] = data[2]
-    
-            elements_added += len(result_data)
-            status_changed = True
-        except Empty:
-            pass
-        
-        if sum([1 for x in processes if x.is_alive()]) == 0:
+        if sum([1 for x in threads if x.is_alive()]) == 0:
             break
 
-        if status_changed and elements_added % 100 == 0:
-            sys.stderr.write("\r  %s/%s completed" % (elements_added, num_work_to_do))
-            status_changed = False
+        if work_done % 100 == 0:
+            sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
 
-    for p in processes:
-        p.join()
+    for t in threads:
+        t.join()
         
-    sys.stderr.write("\r  %s/%s completed\n" % (elements_added, num_work_to_do))
+    sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
 
 def mv2shmem():
     sys.stderr.write("copying to shared memory\n")
