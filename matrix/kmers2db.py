@@ -104,7 +104,8 @@ def genome2kmers_worker(work_queue, result_queue):
         else:
             num, in_fname, length = data
 
-        sys.stderr.write("\r  %s/%s %-50s" % (num + 1, len(db["genomes"]), db["genomes"][num][:50]))
+        sys.stderr.write("\r%-79s" % ("  %s/%s %-50s" % (num + 1, len(db["genomes"]),
+                                                         db["genomes"][num][:50]),))
     
         kmers = numpy.zeros(1000000, dtype=numpy.int64)
         kmer_count = 0
@@ -142,7 +143,7 @@ def genome2kmers(name_to_data, length):
     processes = [Process(target=genome2kmers_worker,
                          args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
-    sys.stderr.write("finding k-mers of length=%s in gene calls\n" % (length,))
+    sys.stderr.write("finding %s-mers in gene calls\n" % (length,))
 
     for p in processes:
         p.start()
@@ -154,7 +155,7 @@ def genome2kmers(name_to_data, length):
             data = result_queue.get(block=False)
             
             result_data.append((data[0], data[1]))
-            db["cds_counts"][num] = len(data[1])
+            db["cds_counts"][data[0]] = len(data[1])
         except Empty:
             pass
         
@@ -170,7 +171,6 @@ def genome2kmers(name_to_data, length):
 
 def kmers2int_worker(work_queue, result_queue):
     intersect1d = numpy.intersect1d
-    hit_matrix = db["hit_matrix"]
 
     while True:
         data = work_queue.get(block=True)
@@ -179,15 +179,15 @@ def kmers2int_worker(work_queue, result_queue):
             break
         else:
             for num1, num2 in data:
-                hit_matrix[num1][num2] = intersect1d(num_to_kmers[num1],
-                                                     num_to_kmers[num2],
-                                                     assume_unique=True).size
-    
-            result_queue.put(len(data))
+                int_set = intersect1d(num_to_kmers[num1],
+                                      num_to_kmers[num2],
+                                      assume_unique=True)
+
+                result_queue.put((num1, num2, int_set.size))
 
 def kmers2int():
-    work_queue = ThreadQueue()
-    result_queue = ThreadQueue()
+    work_queue = Queue()
+    result_queue = Queue()
 
     work_to_do = itertools.combinations(range(len(db["genomes"])), 2)
     num_work_to_do = int(scipy.comb(len(db["genomes"]), 2))
@@ -203,46 +203,59 @@ def kmers2int():
     for i in range(options.num_tasks):
         work_queue.put(False)
         
-    threads = [Thread(target=kmers2int_worker,
-                      args=(work_queue, result_queue)) for i in range(options.num_tasks)]
+    tasks = [Process(target=kmers2int_worker,
+                     args=(work_queue, result_queue)) for i in range(options.num_tasks)]
 
-    for t in threads:
+    for t in tasks:
         t.start()
 
     sys.stderr.write("populating matrix\n")
-    work_done = 0
-    
+
+    true_s_time = time.time()
     s_time = time.time()
+    status_change = True
+    work_done = 0
+    delta_time = []
 
     while True:
-        while True:
+        for _ in range(10):
             try:
-                work_done += result_queue.get(block=False)
+                data = result_queue.get(block=False)
+
+                db["hit_matrix"][data[0]][data[1]] = data[2]
+
+                work_done += 1
+                status_change = True
             except Empty:
                 break
-        
-        if sum([1 for x in threads if x.is_alive()]) == 0:
+
+        if sum([1 for t in tasks if t.is_alive()]) == 0:
             break
 
-        if work_done % 100 == 0:
-            delta_time = time.time() - s_time
-            work_per_time = float(work_done) / float(delta_time)
+        if status_change and work_done % 100 == 0:
+            delta_time.append(time.time() - s_time)
+            work_per_time = float(100 * len(delta_time)) / float(sum(delta_time))
             
             try:
                 time_to_finish = (num_work_to_do - work_done) / work_per_time
             except ZeroDivisionError:
                 time_to_finish = 0
             
-            sys.stderr.write("%-79s" % ("\r  %s/%s completed [%.2f/s, %s remaining]" % (work_done,
+            sys.stderr.write("\r%-79s" % ("  %s/%s completed [%.2f/s, %s remaining]" % (work_done,
                              num_work_to_do, work_per_time, formattime(time_to_finish)),))
 
-        time.sleep(0.1)
+            if len(delta_time) == 100:
+                delta_time = delta_time[1:]                
 
-    for t in threads:
+            s_time = time.time()
+            status_change = False
+
+    for t in tasks:
         t.join()
         
-    sys.stderr.write("\r  %s/%s completed" % (work_done, num_work_to_do))
-    
+    sys.stderr.write("\r%-79s\n" % ("  %s/%s completed in %s" % (work_done,
+                     num_work_to_do, formattime(time.time() - true_s_time)),))
+
     import pdb; pdb.set_trace()
 
 def formattime(secs):
@@ -281,7 +294,7 @@ def new_db(out_fname):
 
     # hit parsing related stuff
     db["algorithm"] = "kmers"
-    db["hit_matrix"] = numpy.zeros((0, 0))
+    db["hit_matrix"] = numpy.zeros((0, 0), dtype=numpy.int64)
     
     db.sync()
     
