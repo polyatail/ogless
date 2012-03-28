@@ -290,7 +290,7 @@ def new_db(out_fname):
 
     # index_fastas related stuff    
     db["genomes"] = []
-    db["cds_counts"] = numpy.zeros(0)
+    db["cds_counts"] = numpy.zeros(0, dtype=numpy.int64)
 
     # hit parsing related stuff
     db["algorithm"] = "kmers"
