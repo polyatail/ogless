@@ -351,6 +351,8 @@ def main(arguments=sys.argv[1:]):
         genome2kmers(name_to_data)
 
         kmers2int()
+        
+        db.sync()
 
     if options.delete:
         # make sure everything is in the database first
