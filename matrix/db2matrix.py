@@ -126,7 +126,7 @@ def jaccard(sizeA, sizeB, size_int):
     return float(size_int) / float(sizeA + sizeB - size_int)
 
 def dice(sizeA, sizeB, size_int):
-    return float(size_int) / float(size_int + 0.5 * (sizeA - size_int) + 0.5 * (sizeB - size_int))
+    return float(2 * size_int) / float(sizeA + sizeB)
 
 def similarity_matrix(db, sim_func, check_func):
     matrix = numpy.zeros((len(db["genomes"]), len(db["genomes"])))
